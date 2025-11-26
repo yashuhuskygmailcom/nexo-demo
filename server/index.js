@@ -15,22 +15,27 @@ const upload = multer({ dest: 'uploads/' });
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+
+// CORS configuration to allow credentials from the frontend
+app.use(cors({
+    // In a real production app, you would restrict this to your frontend's domain
+    origin: (origin, callback) => callback(null, true),
+    credentials: true
+}));
 
 const dbPath = path.resolve(__dirname, 'nexo_db.sqlite');
 
 // Trust the proxy to ensure secure cookies work
 app.set('trust proxy', 1);
 
-// Session configuration
-const isProduction = process.env.NODE_ENV === 'production';
+// Session configuration for cross-site cookies in a secure context
 app.use(session({
   secret: 'your-secret-key',
   resave: false,
-  saveUninitialized: true, // Reverted to true
+  saveUninitialized: true,
   cookie: {
-    secure: isProduction,
-    sameSite: isProduction ? 'none' : 'lax',
+    secure: true, // Cookie must be secure to be sent cross-site
+    sameSite: 'none', // Allows the browser to send the cookie in a cross-site context
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
   }
@@ -51,19 +56,19 @@ let worker;
 })();
 
 const parseOcrText = (text) => {
-  const lines = text.split('\\n').filter(line => line.trim() !== '');
+  const lines = text.split('\n').filter(line => line.trim() !== '');
   let merchantName = lines[0] || 'Unknown Merchant';
   let date = new Date().toISOString().split('T')[0];
   let total = 0;
   const items = [];
 
-  const dateRegex = /\\d{2}[-\\/]\\d{2}[-\\/]\\d{2,4}/;
+  const dateRegex = /\d{2}[-\/]\d{2}[-\/]\d{2,4}/;
   const dateMatch = text.match(dateRegex);
   if (dateMatch) {
     date = new Date(dateMatch[0]).toISOString().split('T')[0];
   }
 
-  const itemRegex = /(.+?)\\s+\\$?(\\d+\\.\\d{2})/;
+  const itemRegex = /(.+?)\s+\$?(\d+\.\d{2})/;
   lines.forEach(line => {
     const match = line.match(itemRegex);
     if (match) {
@@ -75,7 +80,7 @@ const parseOcrText = (text) => {
     }
   });
 
-  const totalRegex = /(?:total|amount|balance due)\\s+\\$?(\\d+\\.\\d{2})/i;
+  const totalRegex = /(?:total|amount|balance due)\s+\$?(\d+\.\d{2})/i;
   const totalMatch = text.match(totalRegex);
   if (totalMatch) {
     total = parseFloat(totalMatch[1]);
@@ -88,7 +93,7 @@ const parseOcrText = (text) => {
       !line.match(itemRegex) &&
       !line.match(dateRegex) &&
       !line.match(totalRegex) &&
-      isNaN(parseFloat(line.replace(/\\$/g, '')))
+      isNaN(parseFloat(line.replace(/\$/g, '')))
     );
     if (potentialMerchantLine) {
       merchantName = potentialMerchantLine.trim();

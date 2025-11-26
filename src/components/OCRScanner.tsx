@@ -3,19 +3,15 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { ArrowLeft, Upload, Camera, FileText, Check } from 'lucide-react';
+import { scanReceipt } from '../api';
+import { ExtractedData } from '../App';
 
 interface OCRScannerProps {
   onBack: () => void;
+  onScan: (data: ExtractedData) => void;
 }
 
-interface ExtractedData {
-  merchantName: string;
-  date: string;
-  total: number;
-  items: { name: string; price: number }[];
-}
-
-export function OCRScanner({ onBack }: OCRScannerProps) {
+export function OCRScanner({ onBack, onScan }: OCRScannerProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
@@ -48,35 +44,25 @@ export function OCRScanner({ onBack }: OCRScannerProps) {
 
   const processReceipt = async () => {
     if (!selectedFile) return;
-    
+
     setIsProcessing(true);
-    
-    // Mock OCR processing - in a real app, this would send to an OCR service
-    setTimeout(() => {
-      const mockData: ExtractedData = {
-        merchantName: "The Great Restaurant",
-        date: "2024-10-01",
-        total: 85.50,
-        items: [
-          { name: "Caesar Salad", price: 12.99 },
-          { name: "Grilled Salmon", price: 24.99 },
-          { name: "Pasta Carbonara", price: 18.99 },
-          { name: "Wine (Glass)", price: 8.99 },
-          { name: "Dessert", price: 7.99 },
-          { name: "Tax", price: 6.55 },
-          { name: "Tip", price: 5.00 }
-        ]
-      };
-      
-      setExtractedData(mockData);
+    const formData = new FormData();
+    formData.append('receipt', selectedFile);
+
+    try {
+      const response = await scanReceipt(formData);
+      setExtractedData(response.data);
+    } catch (error) {
+      console.error("Error processing receipt:", error);
+      // Optionally, show an error message to the user
+    } finally {
       setIsProcessing(false);
-    }, 3000);
+    }
   };
 
   const createExpenseFromReceipt = () => {
     if (extractedData) {
-      // In a real app, this would navigate to the expense splitter with pre-filled data
-      alert(`Expense created: ${extractedData.merchantName} - $${extractedData.total}`);
+      onScan(extractedData);
     }
   };
 

@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
 import { ArrowLeft, Plus, Users, MessageCircle, DollarSign } from 'lucide-react';
+import { apiClient } from '../apiClient';
+import { toast } from './ui/use-toast';
 
 interface FriendsListProps {
   onBack: () => void;
@@ -11,10 +13,8 @@ interface FriendsListProps {
 
 interface Friend {
   id: number;
-  name: string;
+  username: string;
   email: string;
-  avatar: string;
-  balance: number;
 }
 
 interface Group {
@@ -24,62 +24,96 @@ interface Group {
   totalExpenses: number;
 }
 
-const mockFriends: Friend[] = [
-  { id: 1, name: 'Alice Johnson', email: 'alice@email.com', avatar: '👩', balance: -25.50 },
-  { id: 2, name: 'Bob Smith', email: 'bob@email.com', avatar: '👨', balance: 18.75 },
-  { id: 3, name: 'Carol Davis', email: 'carol@email.com', avatar: '👩‍🦱', balance: -12.00 },
-  { id: 4, name: 'David Wilson', email: 'david@email.com', avatar: '👨‍🦲', balance: 35.25 },
-  { id: 5, name: 'Emma Brown', email: 'emma@email.com', avatar: '👩‍🦰', balance: -8.50 },
-];
-
-const initialGroups: Group[] = [
-  { id: 1, name: 'Office Team', members: ['You', 'Alice Johnson', 'Bob Smith'], totalExpenses: 245.50 },
-  { id: 2, name: 'Weekend Trip', members: ['You', 'Carol Davis', 'David Wilson', 'Emma Brown'], totalExpenses: 380.00 },
-];
-
 export function FriendsList({ onBack }: FriendsListProps) {
-  const [friends, setFriends] = useState<Friend[]>(mockFriends);
-  const [groups, setGroups] = useState<Group[]>(initialGroups);
+  const [friends, setFriends] = useState<Friend[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
   const [newFriendEmail, setNewFriendEmail] = useState('');
   const [newGroupName, setNewGroupName] = useState('');
-  const [selectedMembers, setSelectedMembers] = useState<string[]>(['You']);
+  const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<'friends' | 'groups'>('friends');
 
-  const addFriend = () => {
-    if (newFriendEmail) {
-      const newFriend: Friend = {
-        id: Date.now(),
-        name: newFriendEmail.split('@')[0],
-        email: newFriendEmail,
-        avatar: '👤',
-        balance: 0
-      };
-      setFriends([...friends, newFriend]);
+  const fetchFriends = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/friends');
+      setFriends(response.data);
+    } catch (error) {
+      console.error('Error fetching friends:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not fetch friends.',
+        variant: 'destructive',
+      });
+    }
+  }, []);
+
+  const fetchGroups = useCallback(async () => {
+    try {
+      const response = await apiClient.get('/groups');
+      setGroups(response.data);
+    } catch (error) {
+      console.error('Error fetching groups:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not fetch groups.',
+        variant: 'destructive',
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFriends();
+    fetchGroups();
+  }, [fetchFriends, fetchGroups]);
+
+  const addFriend = async () => {
+    if (!newFriendEmail) return;
+    try {
+      const response = await apiClient.get(`/user/${newFriendEmail}`);
+      const friendId = response.data.user.id;
+      await apiClient.post('/friends', { friendId });
       setNewFriendEmail('');
+      fetchFriends();
+      toast({
+        title: 'Success',
+        description: 'Friend added successfully.',
+      });
+    } catch (error) {
+      console.error('Error adding friend:', error);
+      toast({
+        title: 'Error',
+        description: 'Could not add friend. Make sure the email is correct and the user exists.',
+        variant: 'destructive',
+      });
     }
   };
 
-  const createGroup = () => {
-    if (newGroupName && selectedMembers.length > 1) {
-      const newGroup: Group = {
-        id: Date.now(),
-        name: newGroupName,
-        members: selectedMembers,
-        totalExpenses: 0
-      };
-      setGroups([...groups, newGroup]);
-      setNewGroupName('');
-      setSelectedMembers(['You']);
+  const createGroup = async () => {
+    if (newGroupName && selectedMembers.length > 0) {
+      try {
+        await apiClient.post('/groups', { name: newGroupName, members: selectedMembers });
+        setNewGroupName('');
+        setSelectedMembers([]);
+        fetchGroups();
+        toast({
+          title: 'Success',
+          description: 'Group created successfully.',
+        });
+      } catch (error) {
+        console.error('Error creating group:', error);
+        toast({
+          title: 'Error',
+          description: 'Could not create group.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 
-  const toggleMember = (memberName: string) => {
-    if (memberName === 'You') return; // You can't be removed
-    
-    if (selectedMembers.includes(memberName)) {
-      setSelectedMembers(selectedMembers.filter(m => m !== memberName));
+  const toggleMember = (memberId: number) => {
+    if (selectedMembers.includes(memberId)) {
+      setSelectedMembers(selectedMembers.filter(id => id !== memberId));
     } else {
-      setSelectedMembers([...selectedMembers, memberName]);
+      setSelectedMembers([...selectedMembers, memberId]);
     }
   };
 
@@ -165,27 +199,11 @@ export function FriendsList({ onBack }: FriendsListProps) {
                   {friends.map((friend) => (
                     <div key={friend.id} className="flex items-center justify-between p-4 rounded-lg bg-white/5 hover:bg-white/10 transition-colors">
                       <div className="flex items-center gap-3">
-                        <div className="text-3xl">{friend.avatar}</div>
+                        <div className="text-3xl">👤</div>
                         <div>
-                          <p className="text-white">{friend.name}</p>
+                          <p className="text-white">{friend.username}</p>
                           <p className="text-blue-200 text-sm">{friend.email}</p>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <p className={`${friend.balance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                            {friend.balance >= 0 ? 'Owes you' : 'You owe'}
-                          </p>
-                          <p className={`${friend.balance >= 0 ? 'text-green-300' : 'text-red-300'}`}>
-                            ${Math.abs(friend.balance).toFixed(2)}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          className="bg-blue-600 hover:bg-blue-500 text-white border-0"
-                        >
-                          <MessageCircle className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
                   ))}
@@ -216,28 +234,19 @@ export function FriendsList({ onBack }: FriendsListProps) {
                 <div>
                   <p className="text-blue-200 mb-2">Select Members:</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <div className="flex items-center gap-2 p-2 rounded bg-blue-600/20">
-                      <input
-                        type="checkbox"
-                        checked={true}
-                        disabled
-                        className="text-blue-600"
-                      />
-                      <span className="text-white">You</span>
-                    </div>
                     {friends.map((friend) => (
                       <div
                         key={friend.id}
                         className="flex items-center gap-2 p-2 rounded bg-white/5 hover:bg-white/10 cursor-pointer"
-                        onClick={() => toggleMember(friend.name)}
+                        onClick={() => toggleMember(friend.id)}
                       >
                         <input
                           type="checkbox"
-                          checked={selectedMembers.includes(friend.name)}
+                          checked={selectedMembers.includes(friend.id)}
                           readOnly
                           className="text-blue-600"
                         />
-                        <span className="text-white">{friend.name}</span>
+                        <span className="text-white">{friend.username}</span>
                       </div>
                     ))}
                   </div>
@@ -246,7 +255,7 @@ export function FriendsList({ onBack }: FriendsListProps) {
                 <Button
                   onClick={createGroup}
                   className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 text-white border-0"
-                  disabled={!newGroupName || selectedMembers.length < 2}
+                  disabled={!newGroupName || selectedMembers.length < 1}
                 >
                   Create Group
                 </Button>
